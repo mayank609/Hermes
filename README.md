@@ -4,7 +4,7 @@ A production-ready Python service that monitors Telegram groups you're a
 member of and turns every new message into structured, searchable
 information (jobs, internships, hackathons, AI news, events, funding
 announcements, open-source opportunities, research papers, deadlines,
-links, and contacts) using the Gemini API.
+links, contacts, and stock/share-market tips) using the Gemini API.
 
 ## How it works
 
@@ -109,7 +109,7 @@ return **only** JSON matching this schema:
 
 ```json
 {
-  "category": "Job | Internship | Hackathon | AI News | Event | Funding | Open Source | Research Paper | Deadline | Important Link | Contact | Other",
+  "category": "Job | Internship | Hackathon | AI News | Event | Funding | Open Source | Research Paper | Deadline | Important Link | Contact | Stock Tip | Other",
   "title": "",
   "summary": "",
   "company": "",
@@ -129,6 +129,25 @@ Irrelevant messages (small talk, greetings, spam) return `{"is_useful": false}`.
 Structured output is enforced via the Gemini SDK's `response_schema`
 (bound to a Pydantic model), so the response is validated JSON, not
 free-form text that needs regex parsing.
+
+When `category` is `"Stock Tip"` (a buy/sell/hold call from a share-market
+group), nine additional fields are also populated:
+
+```json
+{
+  "stock_name": "Reliance Industries",
+  "stock_symbol": "RELIANCE",
+  "exchange": "NSE",
+  "action": "Buy | Sell | Hold",
+  "entry_price": "2450",
+  "target_price": "2600",
+  "stop_loss": "2400",
+  "timeframe": "Intraday | Short-term | 1 Week | Long-term",
+  "source": "the analyst/channel the tip is attributed to, if named"
+}
+```
+
+These fields are left `null` for every other category.
 
 ## Database
 
@@ -165,6 +184,32 @@ docs at `/docs`):
 | `GET /summary/daily?date=YYYY-MM-DD` | Daily digest (defaults to today, UTC) |
 | `GET /export/csv?category=&group_name=&is_useful=` | Export filtered results as CSV |
 | `GET /export/excel?category=&group_name=&is_useful=` | Export filtered results as `.xlsx` |
+| `GET /insights/stocks?start_date=&end_date=&limit=` | Aggregated buy/sell/hold counts and top-mentioned stocks |
+| `GET /insights/stocks/{symbol}` | Full tip history for one stock (matched by symbol or name) |
+
+## Stock market insights
+
+If you point `TELEGRAM_GROUPS` at share-market tip groups, every "Buy X",
+"Sell Y", or price-target message gets extracted into a dedicated `Stock
+Tip` record (see the schema above) instead of just a generic summary. Three
+ways to consume it, all built on the same underlying data:
+
+1. **Query on demand** — `GET /insights/stocks` returns total buy/sell/hold
+   counts and the most-mentioned stocks, each with mention counts, a
+   buy/sell/hold breakdown, and its most recent call (action, target,
+   stop-loss). `GET /insights/stocks/{symbol}` returns the full tip history
+   for one stock (e.g. `/insights/stocks/RELIANCE`).
+2. **Daily digest file** — once a day (at `DAILY_SUMMARY_HOUR`, alongside
+   the general daily summary), a stock-focused digest is written to
+   `data/summaries/stocks-YYYY-MM-DD.json`.
+3. **Telegram message to yourself** — if any stock tips were captured that
+   day, a formatted text digest (`app/insights.py`) is also sent to your
+   own **Saved Messages** chat on Telegram, so you get a daily "what was
+   recommended today, and how often" summary without opening the API.
+
+Tip: set `KEYWORDS=buy,sell,target,stoploss,sl,nse,bse` (or similar) in
+`.env` if you're monitoring a mix of finance and non-finance groups, so
+only messages that look like trade calls get sent to Gemini.
 
 ## Features implemented
 
@@ -226,6 +271,7 @@ Hermes/
 │   ├── models.py            # SQLAlchemy tables + Pydantic schemas
 │   ├── config.py            # environment-driven settings
 │   ├── exporter.py          # CSV / Excel serialization
+│   ├── insights.py          # stock-tip aggregation digest formatting
 │   ├── api.py                # FastAPI REST API
 │   ├── logging_config.py    # console + rotating file logging
 │   └── main.py               # entrypoint wiring everything together

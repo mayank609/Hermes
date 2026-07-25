@@ -25,6 +25,7 @@ from app.config import LOG_DIR, SUMMARY_DIR, ensure_data_dirs, get_settings
 from app.database import Database
 from app.extractor import MessageProcessor
 from app.gemini import GeminiExtractor
+from app.insights import format_stock_digest
 from app.logging_config import setup_logging
 from app.telegram_client import TelegramWatcher
 
@@ -38,8 +39,10 @@ async def _run_api_server(app, host: str, port: int) -> None:
     await server.serve()
 
 
-async def _daily_summary_loop(db: Database, hour: int) -> None:
-    """Sleep until `hour` (UTC) every day, then log + persist a daily digest."""
+async def _daily_summary_loop(db: Database, hour: int, watcher: TelegramWatcher) -> None:
+    """Sleep until `hour` (UTC) every day, then log + persist a daily digest
+    (general categories) and a dedicated stock-tip digest, the latter also
+    posted to the user's own Telegram Saved Messages."""
     while True:
         now = dt.datetime.utcnow()
         target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
@@ -49,8 +52,9 @@ async def _daily_summary_loop(db: Database, hour: int) -> None:
         logger.info("Daily summary scheduled in %.0f minutes", sleep_seconds / 60)
         await asyncio.sleep(sleep_seconds)
 
+        today = dt.datetime.utcnow().date()
+
         try:
-            today = dt.datetime.utcnow().date()
             summary = await db.get_daily_summary(today)
             logger.info(
                 "Daily summary for %s: %d useful item(s) across %d categor(y/ies)",
@@ -62,6 +66,25 @@ async def _daily_summary_loop(db: Database, hour: int) -> None:
             out_path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
         except Exception:  # noqa: BLE001 - the scheduler must survive a bad day
             logger.exception("Failed to generate daily summary")
+
+        try:
+            start = dt.datetime.combine(today, dt.time.min)
+            end = dt.datetime.combine(today, dt.time.max)
+            stock_summary = await db.get_stock_insights(start_date=start, end_date=end, limit=10)
+            stock_out_path = SUMMARY_DIR / f"stocks-{today.isoformat()}.json"
+            stock_out_path.write_text(json.dumps(stock_summary, indent=2, default=str), encoding="utf-8")
+
+            if stock_summary["total_tips"] > 0:
+                digest_text = format_stock_digest(today.isoformat(), stock_summary)
+                logger.info(
+                    "Stock digest for %s: %d tip(s) across %d stock(s)",
+                    today.isoformat(),
+                    stock_summary["total_tips"],
+                    len(stock_summary["top_stocks"]),
+                )
+                await watcher.send_to_saved_messages(digest_text)
+        except Exception:  # noqa: BLE001 - the scheduler must survive a bad day
+            logger.exception("Failed to generate stock digest")
 
 
 async def run() -> None:
@@ -107,7 +130,7 @@ async def run() -> None:
     if settings.daily_summary_enabled:
         tasks.append(
             asyncio.create_task(
-                _daily_summary_loop(db, settings.daily_summary_hour), name="daily-summary"
+                _daily_summary_loop(db, settings.daily_summary_hour, watcher), name="daily-summary"
             )
         )
 

@@ -39,7 +39,7 @@ information and, if so, extract it into a structured JSON object.
 
 Categories of useful information include: Job, Internship, Hackathon, \
 AI News, Event, Funding, Open Source, Research Paper, Deadline, \
-Important Link, Contact.
+Important Link, Contact, Stock Tip.
 
 Rules:
 - Return ONLY the JSON object described by the response schema. No prose, \
@@ -55,6 +55,27 @@ implied in the message.
 "apply_link" if present.
 - If the message is spam, small talk, a greeting, an emoji-only reaction, \
 or otherwise has no extractable value, return exactly: {"is_useful": false}
+
+Stock/share-market tips (category "Stock Tip"):
+If the message is a stock market recommendation, trade call, or share tip \
+(e.g. "Buy RELIANCE above 2450, target 2600, SL 2400"), set category to \
+"Stock Tip" and additionally fill in:
+- "stock_name": the company name if mentioned (e.g. "Reliance Industries").
+- "stock_symbol": the ticker/symbol if mentioned (e.g. "RELIANCE", "TCS").
+- "exchange": the exchange if evident from context (e.g. "NSE", "BSE", \
+"NASDAQ"); leave null if not stated or implied.
+- "action": one of "Buy", "Sell", or "Hold".
+- "entry_price": the entry/current price or range mentioned, as text \
+(e.g. "2450" or "2440-2460").
+- "target_price": the target price mentioned, as text.
+- "stop_loss": the stop-loss price mentioned, as text.
+- "timeframe": the holding horizon if mentioned (e.g. "Intraday", \
+"Short-term", "1 Week", "Long-term").
+- "source": the analyst, channel, or person the tip is attributed to, if \
+named in the message (e.g. "as per XYZ Research").
+Leave any of these null if the message doesn't mention them. These nine \
+fields only apply to "Stock Tip" messages; leave them null for every other \
+category.
 """
 
 
