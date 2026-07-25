@@ -72,6 +72,16 @@ class TelegramWatcher:
     async def stop(self) -> None:
         await self._client.disconnect()
 
+    async def send_to_saved_messages(self, text: str) -> None:
+        """Post a message to the user's own Saved Messages chat - used for
+        digests (e.g. the daily stock-tip summary). Best-effort: failures
+        are logged, not raised, since a delivery hiccup shouldn't affect
+        the rest of the pipeline."""
+        try:
+            await self._client.send_message("me", text)
+        except Exception:  # noqa: BLE001 - digest delivery must never crash the pipeline
+            logger.exception("Failed to send digest to Saved Messages")
+
     async def _resolve_groups(self) -> list:
         entities = []
         for raw in self._settings.telegram_groups:

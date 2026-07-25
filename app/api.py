@@ -88,6 +88,24 @@ def create_app(settings: Settings | None = None, db: Database | None = None) -> 
     async def stats():
         return await app.state.db.get_stats()
 
+    @app.get("/insights/stocks")
+    async def stock_insights(
+        start_date: dt.datetime | None = Query(None, description="Defaults to all time"),
+        end_date: dt.datetime | None = Query(None),
+        limit: int = Query(10, ge=1, le=100, description="Number of top stocks to return"),
+    ):
+        """Aggregated view of captured Stock Tip messages: total buy/sell/hold
+        counts and the most-mentioned stocks with their latest call."""
+        return await app.state.db.get_stock_insights(start_date=start_date, end_date=end_date, limit=limit)
+
+    @app.get("/insights/stocks/{symbol}")
+    async def stock_history(symbol: str, limit: int = Query(50, ge=1, le=500)):
+        """Full tip history for one stock, matched by symbol or name (case-insensitive)."""
+        history = await app.state.db.get_stock_history(symbol, limit=limit)
+        if not history:
+            raise HTTPException(status_code=404, detail=f"No stock tips found for '{symbol}'")
+        return history
+
     @app.get("/summary/daily")
     async def daily_summary(date: dt.date | None = Query(None, description="Defaults to today (UTC)")):
         day = date or dt.datetime.utcnow().date()

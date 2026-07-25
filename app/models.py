@@ -89,6 +89,17 @@ class ExtractedInfo(Base):
     tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON-encoded list
     is_useful: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     extraction_failed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Stock/share-market tip fields (populated only when category == "Stock Tip")
+    stock_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    stock_symbol: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    exchange: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    action: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    entry_price: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    target_price: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    stop_loss: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    timeframe: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    source: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=dt.datetime.utcnow, nullable=False
     )
@@ -113,7 +124,14 @@ class Category(str, enum.Enum):
     DEADLINE = "Deadline"
     IMPORTANT_LINK = "Important Link"
     CONTACT = "Contact"
+    STOCK_TIP = "Stock Tip"
     OTHER = "Other"
+
+
+class TradeAction(str, enum.Enum):
+    BUY = "Buy"
+    SELL = "Sell"
+    HOLD = "Hold"
 
 
 class ExtractionResult(BaseModel):
@@ -139,6 +157,17 @@ class ExtractionResult(BaseModel):
     skills: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     is_useful: bool = False
+
+    # Stock/share-market tip fields - only populated when category is "Stock Tip"
+    stock_name: Optional[str] = None
+    stock_symbol: Optional[str] = None
+    exchange: Optional[str] = None
+    action: Optional[TradeAction] = None
+    entry_price: Optional[str] = None
+    target_price: Optional[str] = None
+    stop_loss: Optional[str] = None
+    timeframe: Optional[str] = None
+    source: Optional[str] = None
 
 
 class ExtractionResponse(BaseModel):
@@ -166,4 +195,13 @@ class ExtractionResponse(BaseModel):
     skills: list[str]
     tags: list[str]
     is_useful: bool
+    stock_name: Optional[str]
+    stock_symbol: Optional[str]
+    exchange: Optional[str]
+    action: Optional[str]
+    entry_price: Optional[str]
+    target_price: Optional[str]
+    stop_loss: Optional[str]
+    timeframe: Optional[str]
+    source: Optional[str]
     created_at: dt.datetime

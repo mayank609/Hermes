@@ -1,6 +1,35 @@
 from __future__ import annotations
 
-from app.models import Category, ExtractionResult
+from app.models import Category, ExtractionResult, TradeAction
+
+
+def test_extraction_result_parses_stock_tip():
+    data = {
+        "category": "Stock Tip",
+        "title": "Buy RELIANCE",
+        "summary": "Analyst recommends buying Reliance with a target of 2600.",
+        "stock_name": "Reliance Industries",
+        "stock_symbol": "RELIANCE",
+        "exchange": "NSE",
+        "action": "Buy",
+        "entry_price": "2450",
+        "target_price": "2600",
+        "stop_loss": "2400",
+        "timeframe": "Short-term",
+        "source": "XYZ Research",
+        "is_useful": True,
+    }
+    result = ExtractionResult.model_validate(data)
+    assert result.category == Category.STOCK_TIP.value
+    assert result.action == TradeAction.BUY.value
+    assert result.stock_symbol == "RELIANCE"
+    assert result.target_price == "2600"
+
+
+def test_extraction_result_finance_fields_default_none():
+    result = ExtractionResult()
+    assert result.stock_name is None
+    assert result.action is None
 
 
 def test_extraction_result_parses_full_schema():

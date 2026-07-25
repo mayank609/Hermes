@@ -23,7 +23,7 @@ from typing import Any, Optional
 from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from app.models import Base, Category, ExtractedInfo, ExtractionResult, TelegramMessage
+from app.models import Base, Category, ExtractedInfo, ExtractionResult, TelegramMessage, TradeAction
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +141,19 @@ class Database:
                     tags=json.dumps(extraction.tags if extraction else []),
                     is_useful=bool(extraction.is_useful) if extraction else False,
                     extraction_failed=extraction_failed,
+                    stock_name=extraction.stock_name if extraction else None,
+                    stock_symbol=extraction.stock_symbol if extraction else None,
+                    exchange=extraction.exchange if extraction else None,
+                    action=(
+                        extraction.action.value
+                        if extraction and isinstance(extraction.action, TradeAction)
+                        else (extraction.action if extraction else None)
+                    ),
+                    entry_price=extraction.entry_price if extraction else None,
+                    target_price=extraction.target_price if extraction else None,
+                    stop_loss=extraction.stop_loss if extraction else None,
+                    timeframe=extraction.timeframe if extraction else None,
+                    source=extraction.source if extraction else None,
                 )
                 session.add(info)
             return message.id
@@ -171,6 +184,15 @@ class Database:
             "skills": json.loads(info.skills or "[]"),
             "tags": json.loads(info.tags or "[]"),
             "is_useful": info.is_useful,
+            "stock_name": info.stock_name,
+            "stock_symbol": info.stock_symbol,
+            "exchange": info.exchange,
+            "action": info.action,
+            "entry_price": info.entry_price,
+            "target_price": info.target_price,
+            "stop_loss": info.stop_loss,
+            "timeframe": info.timeframe,
+            "source": info.source,
             "created_at": info.created_at,
         }
 
@@ -286,3 +308,101 @@ class Database:
             limit=100_000,
             offset=0,
         )
+
+    # ------------------------------------------------------------------
+    # Stock/share-market insights
+    # ------------------------------------------------------------------
+
+    async def get_stock_insights(
+        self,
+        *,
+        start_date: Optional[dt.datetime] = None,
+        end_date: Optional[dt.datetime] = None,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        """Aggregate stored Stock Tip extractions into per-stock counts and
+        buy/sell/hold sentiment, most-recently-mentioned first."""
+        async with self.session_factory() as session:
+            stmt = (
+                select(TelegramMessage, ExtractedInfo)
+                .join(ExtractedInfo, ExtractedInfo.message_id == TelegramMessage.id)
+                .where(
+                    ExtractedInfo.category == Category.STOCK_TIP.value,
+                    ExtractedInfo.is_useful.is_(True),
+                )
+            )
+            if start_date:
+                stmt = stmt.where(TelegramMessage.message_date >= start_date)
+            if end_date:
+                stmt = stmt.where(TelegramMessage.message_date <= end_date)
+            stmt = stmt.order_by(TelegramMessage.message_date.desc())
+
+            result = await session.execute(stmt)
+            rows = result.all()
+
+        buy_count = sell_count = hold_count = 0
+        per_stock: dict[str, dict[str, Any]] = {}
+
+        for message, info in rows:
+            action = info.action
+            if action == TradeAction.BUY.value:
+                buy_count += 1
+            elif action == TradeAction.SELL.value:
+                sell_count += 1
+            elif action == TradeAction.HOLD.value:
+                hold_count += 1
+
+            key = (info.stock_symbol or info.stock_name or "Unknown").strip().upper()
+            entry = per_stock.get(key)
+            if entry is None:
+                entry = {
+                    "symbol": info.stock_symbol,
+                    "name": info.stock_name,
+                    "exchange": info.exchange,
+                    "mentions": 0,
+                    "buy": 0,
+                    "sell": 0,
+                    "hold": 0,
+                    # rows are ordered newest-first, so the first row seen
+                    # for a stock is its most recent tip.
+                    "latest_action": action,
+                    "latest_target": info.target_price,
+                    "latest_stop_loss": info.stop_loss,
+                    "latest_date": message.message_date,
+                }
+                per_stock[key] = entry
+            entry["mentions"] += 1
+            if action == TradeAction.BUY.value:
+                entry["buy"] += 1
+            elif action == TradeAction.SELL.value:
+                entry["sell"] += 1
+            elif action == TradeAction.HOLD.value:
+                entry["hold"] += 1
+
+        top_stocks = sorted(per_stock.values(), key=lambda s: s["mentions"], reverse=True)[:limit]
+
+        return {
+            "total_tips": len(rows),
+            "buy_count": buy_count,
+            "sell_count": sell_count,
+            "hold_count": hold_count,
+            "top_stocks": top_stocks,
+        }
+
+    async def get_stock_history(self, symbol_or_name: str, limit: int = 50) -> list[dict[str, Any]]:
+        """All stored tips for a given stock (matched on symbol or name, case-insensitive)."""
+        normalized = symbol_or_name.strip().upper()
+        async with self.session_factory() as session:
+            stmt = (
+                select(TelegramMessage, ExtractedInfo)
+                .join(ExtractedInfo, ExtractedInfo.message_id == TelegramMessage.id)
+                .where(
+                    ExtractedInfo.category == Category.STOCK_TIP.value,
+                    func.upper(func.coalesce(ExtractedInfo.stock_symbol, ExtractedInfo.stock_name, ""))
+                    == normalized,
+                )
+                .order_by(TelegramMessage.message_date.desc())
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            return [self._row_to_dict(message, info) for message, info in result.all()]
