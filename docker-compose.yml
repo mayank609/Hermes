@@ -1,0 +1,18 @@
+services:
+  agent:
+    build: .
+    container_name: telegram-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+    # Required for the first run: Telethon needs an interactive terminal to
+    # prompt for the login code (and 2FA password, if enabled). After the
+    # first successful login, data/<SESSION_NAME>.session is created and
+    # subsequent restarts (including `docker compose up -d`) reuse it
+    # without prompting.
+    stdin_open: true
+    tty: true

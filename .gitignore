@@ -1,0 +1,34 @@
+# Environment / secrets
+.env
+
+# Telethon session files (contain live login credentials)
+*.session
+*.session-journal
+
+# Data (database, logs, exports, summaries)
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/logs/*.log*
+data/exports/*
+data/summaries/*
+!data/.gitkeep
+!data/logs/.gitkeep
+!data/exports/.gitkeep
+!data/summaries/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
