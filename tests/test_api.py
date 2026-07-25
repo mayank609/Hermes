@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.api import create_app
 from app.config import Settings
 from app.database import Database, RawMessage
-from app.models import Category, ExtractionResult
+from app.models import Category, ExtractionResult, TradeAction
 
 
 def make_settings() -> Settings:
@@ -107,3 +107,60 @@ def test_export_csv(client: TestClient):
     assert response.status_code == 200
     assert "text/csv" in response.headers["content-type"]
     assert b"Backend Engineer" in response.content
+
+
+@pytest.fixture
+def stock_client(db: Database):
+    async def _seed():
+        raw = RawMessage(
+            message_id=2,
+            group_id="-100888",
+            group_name="Share Market Tips",
+            sender_id="2",
+            sender_name="tipster",
+            raw_text="Buy RELIANCE above 2450, target 2600, SL 2400",
+            content_hash="stockhash1",
+            message_date=dt.datetime(2026, 7, 25, 9, 0, 0),
+        )
+        extraction = ExtractionResult(
+            category=Category.STOCK_TIP,
+            title="Buy RELIANCE",
+            is_useful=True,
+            stock_symbol="RELIANCE",
+            stock_name="Reliance Industries",
+            exchange="NSE",
+            action=TradeAction.BUY,
+            target_price="2600",
+            stop_loss="2400",
+        )
+        await db.save_extraction(raw, extraction)
+
+    import asyncio
+
+    asyncio.get_event_loop().run_until_complete(_seed())
+
+    app = create_app(settings=make_settings(), db=db)
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def test_stock_insights_endpoint(stock_client: TestClient):
+    response = stock_client.get("/insights/stocks")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_tips"] == 1
+    assert data["buy_count"] == 1
+    assert data["top_stocks"][0]["symbol"] == "RELIANCE"
+
+
+def test_stock_history_endpoint(stock_client: TestClient):
+    response = stock_client.get("/insights/stocks/reliance")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["target_price"] == "2600"
+
+
+def test_stock_history_endpoint_not_found(stock_client: TestClient):
+    response = stock_client.get("/insights/stocks/UNKNOWN")
+    assert response.status_code == 404
